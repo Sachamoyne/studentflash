@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { createDeck, getDueCount, deleteDeck, getDeckCardCounts } from "@/store/decks";
-import { db } from "@/lib/db";
 import type { Deck } from "@/lib/db";
 import { ChevronRight, ChevronDown, BookOpen, Plus, Trash2 } from "lucide-react";
 
@@ -104,8 +103,8 @@ export function DeckTree({
   return (
     <div>
       <div
-        className="flex items-center gap-2 rounded-lg p-3 hover:bg-accent/50 active:bg-accent transition-colors cursor-pointer select-none"
-        style={{ paddingLeft: `${12 + indent}px` }}
+        className="flex items-center gap-4 px-4 py-4 border-b last:border-b-0 hover:bg-gray-50 transition-colors cursor-pointer group"
+        style={{ paddingLeft: `${16 + indent}px` }}
         onClick={handleDeckClick}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
@@ -117,56 +116,83 @@ export function DeckTree({
         tabIndex={0}
         aria-label={`Study deck: ${deck.name}`}
       >
-        {hasChildren ? (
-          <button
-            onClick={handleExpandClick}
-            className="p-1 hover:bg-accent rounded"
-            aria-label={expanded ? "Collapse" : "Expand"}
-          >
-            {expanded ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )}
-          </button>
-        ) : (
-          <div className="w-6" />
-        )}
-        <BookOpen className="h-4 w-4 text-muted-foreground" />
-        <div className="flex-1 min-w-0">
-          <div className="font-medium truncate">{deck.name}</div>
-          <div className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
-            {(() => {
-              const counts = learningCounts[deck.id];
-              // Always show counts if available, even if 0
-              if (counts !== undefined) {
+        {/* Left area - Clickable */}
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {hasChildren ? (
+            <button
+              onClick={handleExpandClick}
+              className="p-0.5 hover:bg-gray-200 rounded transition-colors"
+              aria-label={expanded ? "Collapse" : "Expand"}
+            >
+              {expanded ? (
+                <ChevronDown className="h-4 w-4 text-gray-600" />
+              ) : (
+                <ChevronRight className="h-4 w-4 text-gray-600" />
+              )}
+            </button>
+          ) : (
+            <div className="w-5" />
+          )}
+          <BookOpen className="h-5 w-5 text-gray-500 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-gray-900 truncate mb-1.5">
+              {deck.name}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {(() => {
+                const counts = learningCounts[deck.id];
+                if (counts !== undefined) {
+                  return (
+                    <>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full border ${
+                          counts.new > 0
+                            ? "bg-blue-50 text-blue-700 border-blue-200"
+                            : "bg-gray-50 text-gray-400 border-gray-200"
+                        }`}
+                      >
+                        New {counts.new}
+                      </span>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full border ${
+                          counts.learning > 0
+                            ? "bg-orange-50 text-orange-700 border-orange-200"
+                            : "bg-gray-50 text-gray-400 border-gray-200"
+                        }`}
+                      >
+                        Learning {counts.learning}
+                      </span>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full border ${
+                          counts.review > 0
+                            ? "bg-green-50 text-green-700 border-green-200"
+                            : "bg-gray-50 text-gray-400 border-gray-200"
+                        }`}
+                      >
+                        Review {counts.review}
+                      </span>
+                    </>
+                  );
+                }
                 return (
-                  <>
-                    <span className={counts.new > 0 ? "text-blue-600 dark:text-blue-400" : ""}>
-                      New {counts.new}
-                    </span>
-                    <span className="text-muted-foreground"> · </span>
-                    <span className={counts.learning > 0 ? "text-orange-600 dark:text-orange-400" : ""}>
-                      Learning {counts.learning}
-                    </span>
-                    <span className="text-muted-foreground"> · </span>
-                    <span className={counts.review > 0 ? "text-green-600 dark:text-green-400" : ""}>
-                      Review {counts.review}
-                    </span>
-                  </>
+                  <span className="text-xs text-gray-500">
+                    {cardCounts[deck.id] || 0} cards
+                  </span>
                 );
-              }
-              // Fallback while loading
-              return <span>{cardCounts[deck.id] || 0} cards</span>;
-            })()}
+              })()}
+            </div>
           </div>
+          <ChevronRight className="h-4 w-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
         </div>
-        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+
+        {/* Right area - Actions (not clickable for navigation) */}
+        <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           {parentDeck && dueCounts[parentDeck.id] > 0 && (
             <Button
               size="sm"
               variant="outline"
               onClick={handleStudyParentClick}
+              className="text-xs"
             >
               Study parent
             </Button>
@@ -176,6 +202,7 @@ export function DeckTree({
             variant="ghost"
             onClick={handleAddSubDeckClick}
             aria-label="Add sub-deck"
+            className="hover:bg-gray-200"
           >
             <Plus className="h-4 w-4" />
           </Button>
@@ -184,6 +211,7 @@ export function DeckTree({
             variant="ghost"
             onClick={handleDeleteClick}
             aria-label="Delete deck"
+            className="hover:bg-gray-200 hover:text-red-600"
           >
             <Trash2 className="h-4 w-4" />
           </Button>

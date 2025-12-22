@@ -1,44 +1,25 @@
-import { db, type Settings } from "@/lib/db";
+import type { Settings } from "@/lib/db";
+import {
+  getSettings as getSettingsSupabase,
+  updateSettings as updateSettingsSupabase,
+} from "@/lib/supabase-db";
 
 export type { Settings };
 
-const DEFAULT_SETTINGS: Settings = {
-  id: "global",
-  newCardsPerDay: 20,
-  maxReviewsPerDay: 9999,
-  learningMode: "normal",
-  againDelayMinutes: 10,
-  reviewOrder: "mixed",
-};
-
 /**
- * Get settings with defaults if not present
+ * Get settings (from Supabase, auto-created by trigger)
  */
 export async function getSettings(): Promise<Settings> {
-  const settings = await db.settings.get("global");
-  if (!settings) {
-    // Initialize with defaults
-    await db.settings.add(DEFAULT_SETTINGS);
-    return DEFAULT_SETTINGS;
-  }
-  return settings;
+  return await getSettingsSupabase();
 }
 
 /**
  * Update settings (partial update)
  */
 export async function updateSettings(
-  partialSettings: Partial<Omit<Settings, "id">>
+  partialSettings: Partial<Omit<Settings, "user_id" | "created_at" | "updated_at">>
 ): Promise<void> {
-  const existing = await db.settings.get("global");
-  if (existing) {
-    await db.settings.update("global", partialSettings);
-  } else {
-    await db.settings.add({
-      ...DEFAULT_SETTINGS,
-      ...partialSettings,
-    });
-  }
+  await updateSettingsSupabase(partialSettings);
 }
 
 /**
@@ -54,4 +35,3 @@ export function getLearningSteps(mode: "fast" | "normal" | "deep"): number[] {
       return [10, 1440, 4320, 10080]; // 10 minutes, 1 day, 3 days, 7 days
   }
 }
-

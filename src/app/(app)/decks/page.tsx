@@ -13,11 +13,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { listDecks, createDeck, getDueCount, getDeckCardCounts } from "@/store/decks";
-import { db } from "@/lib/db";
-import { seedDatabase } from "@/lib/seed";
+import { listDecks, createDeck, getDueCount, getDeckCardCounts, listCards } from "@/store/decks";
 import { ImportDialog } from "@/components/ImportDialog";
 import type { Deck } from "@/lib/db";
+import { BookOpen } from "lucide-react";
 
 export default function DecksPage() {
   const [decks, setDecks] = useState<Deck[]>([]);
@@ -33,7 +32,6 @@ export default function DecksPage() {
 
   const loadDecks = async () => {
     try {
-      await seedDatabase();
       const loadedDecks = await listDecks();
       setDecks(loadedDecks);
 
@@ -44,11 +42,12 @@ export default function DecksPage() {
       // Load all counts in parallel to avoid N+1
       // Load counts for all decks (including sub-decks)
       const countPromises = loadedDecks.map(async (deck) => {
-        const [cardCount, dueCount, learningCount] = await Promise.all([
-          db.cards.where("deckId").equals(deck.id).count(),
+        const [cards, dueCount, learningCount] = await Promise.all([
+          listCards(deck.id),
           getDueCount(deck.id),
           getDeckCardCounts(deck.id),
         ]);
+        const cardCount = cards.length;
         return {
           deckId: deck.id,
           cardCount,
@@ -107,19 +106,23 @@ export default function DecksPage() {
         showImport
         onImport={() => setImportDialogOpen(true)}
       />
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-4xl">
+      <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="mx-auto max-w-6xl w-full">
           {loading ? (
-            <p className="text-muted-foreground">Loading...</p>
+            <div className="rounded-xl border bg-white px-6 py-12 text-center">
+              <p className="text-gray-500">Loading decks...</p>
+            </div>
           ) : rootDecks.length === 0 ? (
-            <div className="text-center text-muted-foreground">
-              <p className="mb-4">No decks yet.</p>
+            <div className="rounded-xl border bg-white px-6 py-12 text-center">
+              <BookOpen className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">No decks yet</h3>
+              <p className="text-gray-500 mb-6">Create your first deck to start learning</p>
               <Button onClick={() => setDialogOpen(true)}>
                 Create your first deck
               </Button>
             </div>
           ) : (
-            <div className="space-y-1">
+            <div className="rounded-xl border bg-white overflow-hidden">
               {rootDecks.map((deck) => (
                 <DeckTree
                   key={deck.id}

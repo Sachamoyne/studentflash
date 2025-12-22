@@ -1,7 +1,18 @@
-import Link from "next/link";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    redirect("/dashboard");
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="mx-auto max-w-md space-y-8 text-center">
@@ -11,7 +22,7 @@ export default function LandingPage() {
           <br />
           Interface moderne et épurée.
         </p>
-        <Link href="/dashboard">
+        <Link href="/login">
           <Button size="lg">Open app</Button>
         </Link>
       </div>

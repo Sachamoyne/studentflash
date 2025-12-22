@@ -1,10 +1,8 @@
 "use client";
 
-import { db } from "./db";
-import { liveQuery } from "dexie";
+import { createClient } from "./supabase/client";
 import { getDeckAndAllChildren } from "@/store/decks";
 import { useEffect, useState } from "react";
-import type { DependencyList } from "react";
 
 export interface ReviewByDay {
   date: string; // YYYY-MM-DD
@@ -30,36 +28,58 @@ export interface CardDistribution {
 }
 
 /**
+ * Get current user ID
+ */
+async function getCurrentUserId(): Promise<string> {
+  const supabase = createClient();
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) {
+    throw new Error("Not authenticated");
+  }
+  return data.user.id;
+}
+
+/**
  * Get reviews grouped by day for the last N days
  */
 export async function getReviewsByDay(days: number): Promise<ReviewByDay[]> {
-  const now = Date.now();
-  const startTime = now - days * 24 * 60 * 60 * 1000;
-  
-  const reviews = await db.reviews
-    .where("reviewedAt")
-    .between(startTime, now, true, true)
-    .toArray();
-  
+  const supabase = createClient();
+  const userId = await getCurrentUserId();
+
+  const now = new Date();
+  const startTime = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+  const { data: reviews, error } = await supabase
+    .from("reviews")
+    .select("reviewed_at")
+    .eq("user_id", userId)
+    .gte("reviewed_at", startTime.toISOString())
+    .lte("reviewed_at", now.toISOString());
+
+  if (error) {
+    console.error("Error fetching reviews:", error);
+    return [];
+  }
+
   // Group by date
   const byDate = new Map<string, number>();
-  for (const review of reviews) {
-    const date = new Date(review.reviewedAt);
+  for (const review of reviews || []) {
+    const date = new Date(review.reviewed_at);
     const dateStr = date.toISOString().split("T")[0]; // YYYY-MM-DD
     byDate.set(dateStr, (byDate.get(dateStr) || 0) + 1);
   }
-  
+
   // Fill in missing days with 0
   const result: ReviewByDay[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    const date = new Date(now - i * 24 * 60 * 60 * 1000);
+    const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
     const dateStr = date.toISOString().split("T")[0];
     result.push({
       date: dateStr,
       count: byDate.get(dateStr) || 0,
     });
   }
-  
+
   return result;
 }
 
@@ -68,26 +88,36 @@ export async function getReviewsByDay(days: number): Promise<ReviewByDay[]> {
  * Returns array of cells with date, count, and dayOfWeek
  */
 export async function getHeatmapData(days: number): Promise<HeatmapCell[]> {
-  const now = Date.now();
-  const startTime = now - days * 24 * 60 * 60 * 1000;
-  
-  const reviews = await db.reviews
-    .where("reviewedAt")
-    .between(startTime, now, true, true)
-    .toArray();
-  
+  const supabase = createClient();
+  const userId = await getCurrentUserId();
+
+  const now = new Date();
+  const startTime = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+  const { data: reviews, error } = await supabase
+    .from("reviews")
+    .select("reviewed_at")
+    .eq("user_id", userId)
+    .gte("reviewed_at", startTime.toISOString())
+    .lte("reviewed_at", now.toISOString());
+
+  if (error) {
+    console.error("Error fetching reviews for heatmap:", error);
+    return [];
+  }
+
   // Group by date
   const byDate = new Map<string, number>();
-  for (const review of reviews) {
-    const date = new Date(review.reviewedAt);
+  for (const review of reviews || []) {
+    const date = new Date(review.reviewed_at);
     const dateStr = date.toISOString().split("T")[0];
     byDate.set(dateStr, (byDate.get(dateStr) || 0) + 1);
   }
-  
+
   // Create cells for all days
   const result: HeatmapCell[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    const date = new Date(now - i * 24 * 60 * 60 * 1000);
+    const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
     const dateStr = date.toISOString().split("T")[0];
     const dayOfWeek = date.getDay();
     result.push({
@@ -96,7 +126,7 @@ export async function getHeatmapData(days: number): Promise<HeatmapCell[]> {
       dayOfWeek,
     });
   }
-  
+
   return result;
 }
 
@@ -107,37 +137,58 @@ export async function getHeatmapData(days: number): Promise<HeatmapCell[]> {
 export async function getCardStateBreakdown(
   deckId?: string
 ): Promise<CardStateBreakdown> {
-  const now = Date.now();
+  const supabase = createClient();
+  const userId = await getCurrentUserId();
+  const now = new Date();
   let deckIds: string[];
-  
+
   if (deckId) {
     deckIds = await getDeckAndAllChildren(deckId);
   } else {
     // All decks
-    const allDecks = await db.decks.toArray();
-    deckIds = allDecks.map((d) => d.id);
+    const { data: allDecks, error } = await supabase
+      .from("decks")
+      .select("id")
+      .eq("user_id", userId);
+
+    if (error) {
+      console.error("Error fetching decks:", error);
+      return { new: 0, learning: 0, review: 0 };
+    }
+    deckIds = (allDecks || []).map((d) => d.id);
   }
-  
-  const cards = await db.cards
-    .where("deckId")
-    .anyOf(deckIds)
-    .filter((card) => !card.suspended)
-    .toArray();
-  
+
+  if (deckIds.length === 0) {
+    return { new: 0, learning: 0, review: 0 };
+  }
+
+  const { data: cards, error } = await supabase
+    .from("cards")
+    .select("state, due_at")
+    .in("deck_id", deckIds)
+    .eq("user_id", userId)
+    .eq("suspended", false);
+
+  if (error) {
+    console.error("Error fetching cards for breakdown:", error);
+    return { new: 0, learning: 0, review: 0 };
+  }
+
   let newCount = 0;
   let learningCount = 0;
   let reviewCount = 0;
-  
-  for (const card of cards) {
+
+  for (const card of cards || []) {
+    const dueAt = new Date(card.due_at);
     if (card.state === "new") {
       newCount++;
-    } else if (card.state === "learning" && card.dueAt <= now) {
+    } else if (card.state === "learning" && dueAt <= now) {
       learningCount++;
-    } else if (card.state === "review" && card.dueAt <= now) {
+    } else if (card.state === "review" && dueAt <= now) {
       reviewCount++;
     }
   }
-  
+
   return { new: newCount, learning: learningCount, review: reviewCount };
 }
 
@@ -149,27 +200,47 @@ export async function getCardStateBreakdown(
 export async function getCardDistribution(
   deckId?: string
 ): Promise<CardDistribution> {
+  const supabase = createClient();
+  const userId = await getCurrentUserId();
   let deckIds: string[];
-  
+
   if (deckId) {
     deckIds = await getDeckAndAllChildren(deckId);
   } else {
     // All decks
-    const allDecks = await db.decks.toArray();
-    deckIds = allDecks.map((d) => d.id);
+    const { data: allDecks, error } = await supabase
+      .from("decks")
+      .select("id")
+      .eq("user_id", userId);
+
+    if (error) {
+      console.error("Error fetching decks:", error);
+      return { new: 0, learning: 0, learned: 0 };
+    }
+    deckIds = (allDecks || []).map((d) => d.id);
   }
-  
-  const cards = await db.cards
-    .where("deckId")
-    .anyOf(deckIds)
-    .filter((card) => !card.suspended)
-    .toArray();
-  
+
+  if (deckIds.length === 0) {
+    return { new: 0, learning: 0, learned: 0 };
+  }
+
+  const { data: cards, error } = await supabase
+    .from("cards")
+    .select("state, reps")
+    .in("deck_id", deckIds)
+    .eq("user_id", userId)
+    .eq("suspended", false);
+
+  if (error) {
+    console.error("Error fetching cards for distribution:", error);
+    return { new: 0, learning: 0, learned: 0 };
+  }
+
   let newCount = 0;
   let learningCount = 0;
   let learnedCount = 0;
-  
-  for (const card of cards) {
+
+  for (const card of cards || []) {
     if (card.reps === 0) {
       // New: never studied
       newCount++;
@@ -181,70 +252,155 @@ export async function getCardDistribution(
       learnedCount++;
     }
   }
-  
+
   return { new: newCount, learning: learningCount, learned: learnedCount };
 }
 
 /**
- * Hook to use liveQuery in React
- * For arrays, returns empty array instead of undefined when loading
- */
-function useLiveQuery<T>(
-  querier: () => Promise<T> | T,
-  deps: DependencyList = [],
-  defaultValue?: T
-): T | undefined {
-  const [data, setData] = useState<T | undefined>(defaultValue);
-
-  useEffect(() => {
-    const observable = liveQuery(querier);
-    const subscription = observable.subscribe({
-      next: (result) => setData(result),
-      error: (error) => {
-        console.error("LiveQuery error:", error);
-        setData(defaultValue);
-      },
-    });
-
-    return () => subscription.unsubscribe();
-  }, deps);
-
-  return data;
-}
-
-/**
- * Live query for reviews by day
+ * Hook for reviews by day
  */
 export function useReviewsByDay(days: number) {
-  return useLiveQuery(() => getReviewsByDay(days), [days], []);
+  const [data, setData] = useState<ReviewByDay[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function load() {
+      try {
+        const result = await getReviewsByDay(days);
+        if (mounted) {
+          setData(result);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("Error loading reviews by day:", error);
+        if (mounted) {
+          setData([]);
+          setLoading(false);
+        }
+      }
+    }
+
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [days]);
+
+  return loading ? undefined : data;
 }
 
 /**
- * Live query for heatmap data
+ * Hook for heatmap data
  */
 export function useHeatmapData(days: number) {
-  return useLiveQuery(() => getHeatmapData(days), [days], []);
+  const [data, setData] = useState<HeatmapCell[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function load() {
+      try {
+        const result = await getHeatmapData(days);
+        if (mounted) {
+          setData(result);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("Error loading heatmap data:", error);
+        if (mounted) {
+          setData([]);
+          setLoading(false);
+        }
+      }
+    }
+
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [days]);
+
+  return loading ? undefined : data;
 }
 
 /**
- * Live query for card state breakdown
+ * Hook for card state breakdown
  */
 export function useCardStateBreakdown(deckId?: string) {
-  return useLiveQuery(
-    () => getCardStateBreakdown(deckId),
-    [deckId],
-    { new: 0, learning: 0, review: 0 }
-  );
+  const [data, setData] = useState<CardStateBreakdown>({
+    new: 0,
+    learning: 0,
+    review: 0,
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function load() {
+      try {
+        const result = await getCardStateBreakdown(deckId);
+        if (mounted) {
+          setData(result);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("Error loading card state breakdown:", error);
+        if (mounted) {
+          setData({ new: 0, learning: 0, review: 0 });
+          setLoading(false);
+        }
+      }
+    }
+
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [deckId]);
+
+  return loading ? undefined : data;
 }
 
 /**
- * Live query for card distribution
+ * Hook for card distribution
  */
 export function useCardDistribution(deckId?: string) {
-  return useLiveQuery(
-    () => getCardDistribution(deckId),
-    [deckId],
-    { new: 0, learning: 0, learned: 0 }
-  );
+  const [data, setData] = useState<CardDistribution>({
+    new: 0,
+    learning: 0,
+    learned: 0,
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function load() {
+      try {
+        const result = await getCardDistribution(deckId);
+        if (mounted) {
+          setData(result);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("Error loading card distribution:", error);
+        if (mounted) {
+          setData({ new: 0, learning: 0, learned: 0 });
+          setLoading(false);
+        }
+      }
+    }
+
+    load();
+    return () => {
+      mounted = false;
+    };
+  }, [deckId]);
+
+  return loading ? undefined : data;
 }
 

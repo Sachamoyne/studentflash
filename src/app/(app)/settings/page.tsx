@@ -1,17 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Topbar } from "@/components/shell/Topbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { getSettings, updateSettings, type Settings } from "@/store/settings";
+import { createClient } from "@/lib/supabase/client";
+import { LogOut } from "lucide-react";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const router = useRouter();
+  const supabase = createClient();
 
   useEffect(() => {
     async function loadSettings() {
@@ -37,6 +43,18 @@ export default function SettingsPage() {
       console.error("Error saving settings:", error);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await supabase.auth.signOut();
+      router.push("/login");
+      router.refresh();
+    } catch (error) {
+      console.error("Error logging out:", error);
+      setLoggingOut(false);
     }
   };
 
@@ -252,7 +270,16 @@ export default function SettingsPage() {
           </Card>
 
           {/* Save button */}
-          <div className="flex justify-end">
+          <div className="flex justify-between items-center">
+            <Button
+              variant="outline"
+              onClick={handleLogout}
+              disabled={loggingOut}
+              className="hover:bg-red-50 hover:text-red-600 hover:border-red-200"
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              {loggingOut ? "Déconnexion..." : "Se déconnecter"}
+            </Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving ? "Enregistrement..." : "Enregistrer"}
             </Button>

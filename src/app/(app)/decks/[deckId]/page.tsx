@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Topbar } from "@/components/shell/Topbar";
 import { Button } from "@/components/ui/button";
@@ -25,13 +25,14 @@ import {
   getDeckPath,
   getDeckCardCounts,
   listCards,
+  listDecks,
   updateCard,
   suspendCard,
   unsuspendCard,
   getDeckAndAllChildren,
 } from "@/store/decks";
 import { ImportDialog } from "@/components/ImportDialog";
-import { db } from "@/lib/db";
+import { MoveCardsDialog } from "@/components/MoveCardsDialog";
 import type { Card as CardType, Deck } from "@/lib/db";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -60,12 +61,15 @@ export default function DeckDetailPage() {
   const [breadcrumbItems, setBreadcrumbItems] = useState<
     { label: string; href?: string }[]
   >([]);
+  const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set());
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
 
   const loadDeck = async () => {
     try {
       // Normalize deckId to string
       const normalizedDeckId = String(deckId);
-      const loadedDeck = await db.decks.get(normalizedDeckId);
+      const allDecks = await listDecks();
+      const loadedDeck = allDecks.find((d) => d.id === normalizedDeckId);
       if (!loadedDeck) {
         router.push("/decks");
         return;
@@ -82,7 +86,6 @@ export default function DeckDetailPage() {
       const items: { label: string; href?: string }[] = [];
       for (let i = 0; i < parts.length; i++) {
         if (i < parts.length - 1) {
-          const allDecks = await db.decks.toArray();
           const deck = allDecks.find((d) => d.name === parts[i]);
           if (deck) {
             items.push({ label: parts[i], href: `/decks/${deck.id}` });
@@ -104,21 +107,18 @@ export default function DeckDetailPage() {
     const normalizedDeckId = String(deckId);
     setLoadingCards(true);
     setCardsError(null);
-    
+
     try {
       // Load cards from deck and all sub-decks
       const deckIds = await getDeckAndAllChildren(normalizedDeckId);
       const allCards: CardType[] = [];
-      
-      // Use direct Dexie query for better reliability
+
+      // Load cards from each deck
       for (const id of deckIds) {
-        const deckCards = await db.cards
-          .where("deckId")
-          .equals(String(id))
-          .toArray();
+        const deckCards = await listCards(id);
         allCards.push(...deckCards);
       }
-      
+
       setCards(allCards);
     } catch (error) {
       console.error("Error loading cards:", error);
@@ -131,6 +131,8 @@ export default function DeckDetailPage() {
 
   useEffect(() => {
     loadDeck();
+    // Clear selection when deck changes
+    setSelectedCardIds(new Set());
   }, [deckId, router]);
 
   useEffect(() => {
@@ -140,6 +142,7 @@ export default function DeckDetailPage() {
       // Clear cards when hiding
       setCards([]);
       setCardsError(null);
+      setSelectedCardIds(new Set());
     }
   }, [browseMode, deckId]);
 
@@ -238,6 +241,64 @@ export default function DeckDetailPage() {
       await loadCards();
     }
   };
+
+  // Selection management
+  const toggleCardSelection = (cardId: string) => {
+    setSelectedCardIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(cardId)) {
+        next.delete(cardId);
+      } else {
+        next.add(cardId);
+      }
+      return next;
+    });
+  };
+
+  const selectAllCards = () => {
+    setSelectedCardIds(new Set(cards.map((c) => c.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedCardIds(new Set());
+  };
+
+  const handleMoveCards = async () => {
+    await loadDeck();
+    await loadCards();
+    clearSelection();
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    if (!browseMode || cards.length === 0) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't interfere if user is typing in an input/textarea
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+
+      // Ctrl+A / Cmd+A: Select all
+      if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+        e.preventDefault();
+        setSelectedCardIds(new Set(cards.map((c) => c.id)));
+      }
+
+      // Escape: Clear selection
+      if (e.key === "Escape") {
+        setSelectedCardIds(new Set());
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [browseMode, cards]);
 
   const totalCards = cardCounts.new + cardCounts.learning + cardCounts.review;
   const hasCardsToStudy = cardCounts.review > 0 || cardCounts.learning > 0 || cardCounts.new > 0;
@@ -373,6 +434,39 @@ export default function DeckDetailPage() {
           ) : (
             // Browse view
             <div className="space-y-6">
+              {/* Selection action bar */}
+              {selectedCardIds.size > 0 && (
+                <div className="sticky top-0 z-10 bg-background border-b pb-4 pt-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm font-medium">
+                        {selectedCardIds.size} selected
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={selectAllCards}
+                      >
+                        Select all
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearSelection}
+                      >
+                        Clear
+                      </Button>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => setMoveDialogOpen(true)}
+                      >
+                        Move to...
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
               {loadingCards ? (
                 <div className="text-center text-muted-foreground py-12">
                   <p>Loading cards...</p>
@@ -402,10 +496,18 @@ export default function DeckDetailPage() {
                       <h3 className="text-lg font-semibold mb-3">New ({newCards.length})</h3>
                       <div className="space-y-2">
                         {newCards.map((card) => (
-                          <Card key={card.id}>
+                          <Card key={card.id} className={selectedCardIds.has(card.id) ? "ring-2 ring-primary" : ""}>
                             <CardHeader>
                               <div className="flex items-start justify-between">
-                                <CardTitle className="text-base">Card</CardTitle>
+                                <div className="flex items-start gap-3 flex-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedCardIds.has(card.id)}
+                                    onChange={() => toggleCardSelection(card.id)}
+                                    className="mt-1 h-4 w-4 rounded border-gray-300"
+                                  />
+                                  <CardTitle className="text-base">Card</CardTitle>
+                                </div>
                                 <div className="flex gap-1">
                                   <Button
                                     variant="ghost"
@@ -462,10 +564,18 @@ export default function DeckDetailPage() {
                       </h3>
                       <div className="space-y-2">
                         {learningCards.map((card) => (
-                          <Card key={card.id}>
+                          <Card key={card.id} className={selectedCardIds.has(card.id) ? "ring-2 ring-primary" : ""}>
                             <CardHeader>
                               <div className="flex items-start justify-between">
-                                <CardTitle className="text-base">Card</CardTitle>
+                                <div className="flex items-start gap-3 flex-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedCardIds.has(card.id)}
+                                    onChange={() => toggleCardSelection(card.id)}
+                                    className="mt-1 h-4 w-4 rounded border-gray-300"
+                                  />
+                                  <CardTitle className="text-base">Card</CardTitle>
+                                </div>
                                 <div className="flex gap-1">
                                   <Button
                                     variant="ghost"
@@ -522,10 +632,18 @@ export default function DeckDetailPage() {
                       </h3>
                       <div className="space-y-2">
                         {reviewCards.map((card) => (
-                          <Card key={card.id}>
+                          <Card key={card.id} className={selectedCardIds.has(card.id) ? "ring-2 ring-primary" : ""}>
                             <CardHeader>
                               <div className="flex items-start justify-between">
-                                <CardTitle className="text-base">Card</CardTitle>
+                                <div className="flex items-start gap-3 flex-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedCardIds.has(card.id)}
+                                    onChange={() => toggleCardSelection(card.id)}
+                                    className="mt-1 h-4 w-4 rounded border-gray-300"
+                                  />
+                                  <CardTitle className="text-base">Card</CardTitle>
+                                </div>
                                 <div className="flex gap-1">
                                   <Button
                                     variant="ghost"
@@ -582,10 +700,18 @@ export default function DeckDetailPage() {
                       </h3>
                       <div className="space-y-2">
                         {suspendedCards.map((card) => (
-                          <Card key={card.id} className="opacity-60">
+                          <Card key={card.id} className={`opacity-60 ${selectedCardIds.has(card.id) ? "ring-2 ring-primary" : ""}`}>
                             <CardHeader>
                               <div className="flex items-start justify-between">
-                                <CardTitle className="text-base">Card</CardTitle>
+                                <div className="flex items-start gap-3 flex-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedCardIds.has(card.id)}
+                                    onChange={() => toggleCardSelection(card.id)}
+                                    className="mt-1 h-4 w-4 rounded border-gray-300"
+                                  />
+                                  <CardTitle className="text-base">Card</CardTitle>
+                                </div>
                                 <div className="flex gap-1">
                                   <Button
                                     variant="ghost"
@@ -642,10 +768,18 @@ export default function DeckDetailPage() {
                       </h3>
                       <div className="space-y-2">
                         {otherCards.map((card) => (
-                          <Card key={card.id}>
+                          <Card key={card.id} className={selectedCardIds.has(card.id) ? "ring-2 ring-primary" : ""}>
                             <CardHeader>
                               <div className="flex items-start justify-between">
-                                <CardTitle className="text-base">Card</CardTitle>
+                                <div className="flex items-start gap-3 flex-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedCardIds.has(card.id)}
+                                    onChange={() => toggleCardSelection(card.id)}
+                                    className="mt-1 h-4 w-4 rounded border-gray-300"
+                                  />
+                                  <CardTitle className="text-base">Card</CardTitle>
+                                </div>
                                 <div className="flex gap-1">
                                   <Button
                                     variant="ghost"
@@ -785,6 +919,14 @@ export default function DeckDetailPage() {
         onOpenChange={setImportDialogOpen}
         initialDeckId={deckId}
         onSuccess={handleImportSuccess}
+      />
+
+      <MoveCardsDialog
+        open={moveDialogOpen}
+        onOpenChange={setMoveDialogOpen}
+        cardIds={Array.from(selectedCardIds)}
+        currentDeckId={deckId}
+        onSuccess={handleMoveCards}
       />
     </>
   );

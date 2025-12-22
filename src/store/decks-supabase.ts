@@ -21,19 +21,11 @@ export {
   getCardsStudiedToday,
   getCurrentStreak,
   getTotalReviews,
-  // Scheduler functions
-  previewIntervals,
-  formatInterval,
-  formatIntervalDays,
-  parseSteps,
-  // Types
   type Deck,
   type Card,
   type Review,
   type ImportDoc,
   type GeneratedCard,
-  type IntervalPreview,
-  type SchedulerSettings,
 } from "@/lib/supabase-db";
 
 // Note: Import-related functions are not yet migrated to Supabase

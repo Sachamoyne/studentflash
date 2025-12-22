@@ -10,8 +10,6 @@ import {
   getCurrentStreak,
   getTotalReviews,
 } from "@/store/decks";
-import { db } from "@/lib/db";
-import { seedDatabase } from "@/lib/seed";
 import {
   useReviewsByDay,
   useHeatmapData,
@@ -51,9 +49,7 @@ export default function DashboardPage() {
   useEffect(() => {
     async function loadStats() {
       try {
-        await seedDatabase();
         const decks = await listDecks();
-        const allCards = await db.cards.toArray();
 
         // Calculate total due count: sum of all root decks (decks without parent)
         const rootDecks = decks.filter((d) => !d.parentDeckId);
@@ -69,7 +65,7 @@ export default function DashboardPage() {
         ]);
 
         setDeckCount(decks.length);
-        setCardCount(allCards.length);
+        // Card count will be set from cardDistribution hook
         setDueCount(totalDue);
         setStudiedToday(studied);
         setStreak(currentStreak);
@@ -83,7 +79,7 @@ export default function DashboardPage() {
     loadStats();
   }, []);
 
-  // Update due count when card breakdown changes
+  // Update due count and card count when card distribution changes
   useEffect(() => {
     if (cardBreakdown) {
       setDueCount(
@@ -91,6 +87,15 @@ export default function DashboardPage() {
       );
     }
   }, [cardBreakdown]);
+
+  // Update total card count from card distribution
+  useEffect(() => {
+    if (cardDistribution) {
+      setCardCount(
+        cardDistribution.new + cardDistribution.learning + cardDistribution.learned
+      );
+    }
+  }, [cardDistribution]);
 
   // Format date for chart
   const formatChartDate = (dateStr: string): string => {
@@ -232,30 +237,53 @@ export default function DashboardPage() {
               <CardHeader>
                 <CardTitle className="text-base">Répartition des cartes</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="px-2 py-4">
                 {cardDistribution !== undefined ? (
                   pieData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={200}>
-                      <PieChart>
-                        <Pie
-                          data={pieData}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, percent }) =>
-                            `${name}: ${(percent * 100).toFixed(0)}%`
-                          }
-                          outerRadius={80}
-                          fill="#8884d8"
-                          dataKey="value"
-                        >
-                          {pieData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
+                    <div className="w-full h-[280px] flex items-center justify-center">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={pieData}
+                            cx="50%"
+                            cy="45%"
+                            labelLine={false}
+                            label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+                              const RADIAN = Math.PI / 180;
+                              const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+                              const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                              const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                              return (
+                                <text
+                                  x={x}
+                                  y={y}
+                                  fill="white"
+                                  textAnchor="middle"
+                                  dominantBaseline="central"
+                                  className="text-xs font-semibold"
+                                >
+                                  {`${(percent * 100).toFixed(0)}%`}
+                                </text>
+                              );
+                            }}
+                            outerRadius={70}
+                            fill="#8884d8"
+                            dataKey="value"
+                          >
+                            {pieData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Legend
+                            verticalAlign="bottom"
+                            height={36}
+                            wrapperStyle={{
+                              paddingTop: "10px"
+                            }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
                   ) : (
                     <div className="h-32 flex items-center justify-center text-muted-foreground text-sm">
                       Aucune carte

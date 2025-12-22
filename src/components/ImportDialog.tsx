@@ -17,7 +17,6 @@ import { Separator } from "@/components/ui/separator";
 import { Upload, FileText, Image as ImageIcon, Loader2 } from "lucide-react";
 import { listDecks, createImport, generateCards, persistGeneratedCards, type GenerateCardsResult } from "@/store/decks";
 import { GeneratedCardRow, type CardProposal } from "@/components/GeneratedCardRow";
-import { db } from "@/lib/db";
 import type { Deck } from "@/lib/db";
 
 // Import dynamique pour éviter les erreurs SSR
@@ -205,7 +204,8 @@ export function ImportDialog({
     try {
       let deckName: string | undefined;
       if (initialDeckId) {
-        const deck = await db.decks.get(initialDeckId);
+        const allDecks = await listDecks();
+        const deck = allDecks.find((d) => d.id === initialDeckId);
         deckName = deck?.name;
       } else {
         const deck = decks.find((d) => d.id === selectedDeckId);

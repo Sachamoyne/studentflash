@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { StudyCard } from "@/components/StudyCard";
-import { getDueCards, getDeckPath } from "@/store/decks";
-import { db } from "@/lib/db";
+import { getDueCards, getDeckPath, listDecks } from "@/store/decks";
 import type { Deck } from "@/lib/db";
 
 export default function DeckStudyPage() {
@@ -19,12 +18,13 @@ export default function DeckStudyPage() {
   useEffect(() => {
     async function loadDueCards() {
       try {
-        const [loadedDeck, dueCards, path] = await Promise.all([
-          db.decks.get(deckId),
+        const [allDecks, dueCards, path] = await Promise.all([
+          listDecks(),
           getDueCards(deckId, 50),
           getDeckPath(deckId),
         ]);
 
+        const loadedDeck = allDecks.find((d) => d.id === deckId);
         if (!loadedDeck) {
           router.push("/decks");
           return;

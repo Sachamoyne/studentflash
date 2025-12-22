@@ -23,9 +23,11 @@ import {
   updateCard,
   suspendCard,
   getDeckPath,
+  listDecks,
+  previewIntervals,
 } from "@/store/decks";
-import { db } from "@/lib/db";
-import type { Card as CardType, Deck } from "@/lib/db";
+import { getSettings } from "@/lib/supabase-db";
+import type { Card as CardType, Deck, IntervalPreview } from "@/lib/db";
 import {
   Edit,
   Pause,
@@ -62,6 +64,7 @@ export function StudyCard({
   const [error, setError] = useState<string | undefined>();
   const [dueCount, setDueCount] = useState(0);
   const [againCardsCount, setAgainCardsCount] = useState(0);
+  const [intervalPreviews, setIntervalPreviews] = useState<IntervalPreview | null>(null);
   const [focusMode, setFocusMode] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editFront, setEditFront] = useState("");
@@ -71,6 +74,7 @@ export function StudyCard({
     { label: string; href?: string }[]
   >([]);
   const queuedIds = useRef<Set<string>>(new Set(initialCards.map((c) => c.id)));
+  const isSubmitting = useRef(false);
 
   // Load breadcrumb
   useEffect(() => {
@@ -83,7 +87,7 @@ export function StudyCard({
         currentPath += (i > 0 ? " > " : "") + parts[i];
         if (i < parts.length - 1) {
           // Find deck ID for this path part
-          const allDecks = await db.decks.toArray();
+          const allDecks = await listDecks();
           const deck = allDecks.find((d) => d.name === parts[i]);
           if (deck) {
             items.push({ label: parts[i], href: `/decks/${deck.id}` });
@@ -102,72 +106,91 @@ export function StudyCard({
   const currentDeck = currentCard && deckMap ? deckMap.get(currentCard.deckId) : null;
 
   const handleRate = useCallback(
-    (rating: "again" | "hard" | "good" | "easy") => {
+    async (rating: "again" | "hard" | "good" | "easy") => {
       if (!currentCard) return;
 
-      // IMMEDIATE UI update - don't wait for anything
-      const withoutCurrent = queue.filter((_, i) => i !== currentIndex);
-      let newQueue: CardType[] = [];
-      let newIndex = currentIndex;
+      // Prevent double submit
+      if (isSubmitting.current) {
+        console.warn("⚠️ Already submitting, ignoring duplicate rate");
+        return;
+      }
 
-      if (rating === "again") {
-        const REINSERT_AFTER_VAL = Math.min(3, withoutCurrent.length);
-        const insertAt = Math.min(
-          withoutCurrent.length,
-          currentIndex + REINSERT_AFTER_VAL
-        );
+      isSubmitting.current = true;
+      const cardId = currentCard.id;
+      const previousState = currentCard.state;
 
-        newQueue = [
-          ...withoutCurrent.slice(0, insertAt),
-          currentCard,
-          ...withoutCurrent.slice(insertAt),
-        ];
+      console.log("🔵 handleRate START", { cardId, rating, previousState });
 
-        queuedIds.current.add(currentCard.id);
-        setAgainCardsCount((prev) => prev + 1);
-        newIndex = Math.min(currentIndex, withoutCurrent.length - 1);
-      } else {
-        newQueue = withoutCurrent;
-        queuedIds.current.delete(currentCard.id);
-        if (againCardsCount > 0) {
-          setAgainCardsCount((prev) => Math.max(0, prev - 1));
-        }
+      try {
+        // Persist review FIRST - wait for completion
+        await reviewCard(cardId, rating);
+        console.log("✅ reviewCard completed successfully");
 
-        if (withoutCurrent.length === 0) {
-          newIndex = 0;
-        } else if (currentIndex >= withoutCurrent.length) {
-          newIndex = withoutCurrent.length - 1;
+        // THEN update UI
+        const withoutCurrent = queue.filter((_, i) => i !== currentIndex);
+        let newQueue: CardType[] = [];
+        let newIndex = currentIndex;
+
+        if (rating === "again") {
+          const REINSERT_AFTER_VAL = Math.min(3, withoutCurrent.length);
+          const insertAt = Math.min(
+            withoutCurrent.length,
+            currentIndex + REINSERT_AFTER_VAL
+          );
+
+          newQueue = [
+            ...withoutCurrent.slice(0, insertAt),
+            currentCard,
+            ...withoutCurrent.slice(insertAt),
+          ];
+
+          queuedIds.current.add(currentCard.id);
+          setAgainCardsCount((prev) => prev + 1);
+          newIndex = Math.min(currentIndex, withoutCurrent.length - 1);
         } else {
-          newIndex = currentIndex;
+          newQueue = withoutCurrent;
+          queuedIds.current.delete(currentCard.id);
+          if (againCardsCount > 0) {
+            setAgainCardsCount((prev) => Math.max(0, prev - 1));
+          }
+
+          if (withoutCurrent.length === 0) {
+            newIndex = 0;
+          } else if (currentIndex >= withoutCurrent.length) {
+            newIndex = withoutCurrent.length - 1;
+          } else {
+            newIndex = currentIndex;
+          }
         }
-      }
 
-      // Update state immediately
-      setQueue(newQueue);
-      setShowBack(false);
+        // Update state immediately
+        setQueue(newQueue);
+        setShowBack(false);
 
-      // Visual feedback (non-blocking)
-      setRatingFlash(rating);
-      setTimeout(() => setRatingFlash(null), 200);
+        // Visual feedback (non-blocking)
+        setRatingFlash(rating);
+        setTimeout(() => setRatingFlash(null), 200);
 
-      // Advance to next card immediately
-      if (newQueue.length === 0) {
-        setCurrentIndex(0);
-        onComplete?.();
-      } else {
-        setCurrentIndex(Math.min(newIndex, Math.max(0, newQueue.length - 1)));
-      }
+        // Advance to next card immediately
+        if (newQueue.length === 0) {
+          setCurrentIndex(0);
+          onComplete?.();
+        } else {
+          setCurrentIndex(Math.min(newIndex, Math.max(0, newQueue.length - 1)));
+        }
 
-      // Persist review ASYNC (fire-and-forget)
-      reviewCard(currentCard.id, rating).catch((err) => {
-        console.error("Error reviewing card:", err);
+        // Update due count ASYNC (fire-and-forget)
+        getDueCount(deckId)
+          .then(setDueCount)
+          .catch((err) => console.error("Error updating due count:", err));
+
+        console.log("🔵 handleRate END - success");
+      } catch (err) {
+        console.error("❌ Error in handleRate:", err);
         setError(err instanceof Error ? err.message : "Failed to review card");
-      });
-
-      // Update due count ASYNC (fire-and-forget)
-      getDueCount(deckId)
-        .then(setDueCount)
-        .catch((err) => console.error("Error updating due count:", err));
+      } finally {
+        isSubmitting.current = false;
+      }
     },
     [queue, currentIndex, currentCard, againCardsCount, onComplete, deckId]
   );
@@ -280,6 +303,44 @@ export function StudyCard({
   useEffect(() => {
     getDueCount(deckId).then(setDueCount);
   }, [deckId]);
+
+  // Calculate interval previews when card changes or back is shown
+  useEffect(() => {
+    if (!currentCard || !showBack) {
+      setIntervalPreviews(null);
+      return;
+    }
+
+    async function loadPreviews() {
+      if (!currentCard) return;
+
+      try {
+        const settings = await getSettings();
+        const schedulerSettings = {
+          learning_steps: settings.learning_steps,
+          relearning_steps: settings.relearning_steps,
+          graduating_interval_days: settings.graduating_interval_days,
+          easy_interval_days: settings.easy_interval_days,
+          starting_ease: settings.starting_ease,
+          easy_bonus: settings.easy_bonus,
+          hard_interval: settings.hard_interval,
+          interval_modifier: settings.interval_modifier,
+          new_interval_multiplier: settings.new_interval_multiplier,
+          minimum_interval_days: settings.minimum_interval_days,
+          maximum_interval_days: settings.maximum_interval_days,
+          again_delay_minutes: settings.again_delay_minutes,
+        };
+
+        const previews = previewIntervals(currentCard, schedulerSettings);
+        setIntervalPreviews(previews);
+      } catch (error) {
+        console.error("Error loading interval previews:", error);
+        setIntervalPreviews(null);
+      }
+    }
+
+    loadPreviews();
+  }, [currentCard, showBack]);
 
   if (queue.length === 0 || !currentCard) {
     const content = (
@@ -460,43 +521,63 @@ export function StudyCard({
                   onClick={() => handleRate("again")}
                   size="lg"
                   className={cn(
-                    "transition-all",
+                    "transition-all flex flex-col h-auto py-3",
                     ratingFlash === "again" && "scale-110 ring-2 ring-destructive"
                   )}
                 >
-                  Again (1)
+                  <span className="font-semibold">Again (1)</span>
+                  {intervalPreviews && (
+                    <span className="text-xs opacity-80 mt-1">
+                      {intervalPreviews.again}
+                    </span>
+                  )}
                 </Button>
                 <Button
                   variant="outline"
                   onClick={() => handleRate("hard")}
                   size="lg"
                   className={cn(
-                    "transition-all",
+                    "transition-all flex flex-col h-auto py-3",
                     ratingFlash === "hard" && "scale-110 ring-2 ring-ring"
                   )}
                 >
-                  Hard (2)
+                  <span className="font-semibold">Hard (2)</span>
+                  {intervalPreviews?.hard && (
+                    <span className="text-xs opacity-80 mt-1">
+                      {intervalPreviews.hard}
+                    </span>
+                  )}
                 </Button>
                 <Button
                   onClick={() => handleRate("good")}
                   size="lg"
                   className={cn(
-                    "transition-all",
+                    "transition-all flex flex-col h-auto py-3",
                     ratingFlash === "good" && "scale-110 ring-2 ring-primary"
                   )}
                 >
-                  Good (3)
+                  <span className="font-semibold">Good (3)</span>
+                  {intervalPreviews && (
+                    <span className="text-xs opacity-80 mt-1">
+                      {intervalPreviews.good}
+                    </span>
+                  )}
                 </Button>
                 <Button
                   variant="secondary"
                   onClick={() => handleRate("easy")}
                   size="lg"
                   className={cn(
-                    "transition-all",
+                    "transition-all flex flex-col h-auto py-3",
                     ratingFlash === "easy" && "scale-110 ring-2 ring-secondary"
                   )}
                 >
-                  Easy (4)
+                  <span className="font-semibold">Easy (4)</span>
+                  {intervalPreviews && (
+                    <span className="text-xs opacity-80 mt-1">
+                      {intervalPreviews.easy}
+                    </span>
+                  )}
                 </Button>
               </div>
             )
