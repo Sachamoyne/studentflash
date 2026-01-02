@@ -59,7 +59,7 @@ interface ImportDialogProps {
   onSuccess?: () => void;
 }
 
-type Step = "file" | "extract" | "review-text" | "review-cards";
+type Step = "file" | "extract" | "review-text" | "review-cards" | "importing-anki";
 
 export function ImportDialog({
   open,
@@ -80,6 +80,8 @@ export function ImportDialog({
   const [isGenerating, setIsGenerating] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [usedFallback, setUsedFallback] = useState(false);
+  const [isImportingAnki, setIsImportingAnki] = useState(false);
+  const [ankiImportResult, setAnkiImportResult] = useState<{ imported: number; decks: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importIdRef = useRef<string | null>(null);
 
@@ -136,8 +138,54 @@ export function ImportDialog({
     return { text: data.text, confidence: data.confidence / 100 };
   };
 
+  const handleImportAnki = async () => {
+    if (!file) return;
+
+    setStep("importing-anki");
+    setIsImportingAnki(true);
+    setExtractionError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("/api/import/anki", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("[ANKI IMPORT] Server error:", response.status, errorData);
+        throw new Error(errorData.details || errorData.error || "Import failed");
+      }
+
+      const result = await response.json();
+      setAnkiImportResult({ imported: result.imported, decks: result.decks });
+
+      // Wait a bit to show success message
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      onSuccess?.();
+      onOpenChange(false);
+      reset();
+    } catch (error) {
+      setExtractionError(error instanceof Error ? error.message : "Import failed");
+      setStep("file");
+    } finally {
+      setIsImportingAnki(false);
+    }
+  };
+
   const handleExtract = async () => {
     if (!file) return;
+
+    // Check if this is an Anki file
+    if (file.name.endsWith(".apkg")) {
+      await handleImportAnki();
+      return;
+    }
 
     setStep("extract");
     setExtractionProgress(0);
@@ -285,6 +333,8 @@ export function ImportDialog({
     setGeneratedCards([]);
     setSelectedCardIndices(new Set());
     setUsedFallback(false);
+    setIsImportingAnki(false);
+    setAnkiImportResult(null);
     importIdRef.current = null;
   };
 
@@ -308,12 +358,14 @@ export function ImportDialog({
             {step === "extract" && "Extracting Text..."}
             {step === "review-text" && "Review Extracted Text"}
             {step === "review-cards" && "Review Generated Cards"}
+            {step === "importing-anki" && "Importing Anki Deck..."}
           </DialogTitle>
           <DialogDescription>
-            {step === "file" && "Upload a PDF or image to extract text and generate flashcards"}
+            {step === "file" && "Upload a PDF, image, or Anki (.apkg) file"}
             {step === "extract" && "Please wait while we extract text from your document"}
             {step === "review-text" && "Review the extracted text, then generate cards"}
             {step === "review-cards" && "Select and edit cards to add to your deck"}
+            {step === "importing-anki" && "Please wait while we import your Anki deck"}
           </DialogDescription>
         </DialogHeader>
 
@@ -325,7 +377,7 @@ export function ImportDialog({
                 <Input
                   id="file"
                   type="file"
-                  accept=".pdf,image/*"
+                  accept=".pdf,image/*,.apkg"
                   onChange={handleFileSelect}
                   ref={fileInputRef}
                   className="cursor-pointer"
@@ -356,7 +408,7 @@ export function ImportDialog({
               </div>
             )}
 
-            {!initialDeckId && (
+            {!initialDeckId && !file?.name.endsWith(".apkg") && (
               <div>
                 <Label htmlFor="deck">Select Deck</Label>
                 <select
@@ -375,6 +427,12 @@ export function ImportDialog({
               </div>
             )}
 
+            {file?.name.endsWith(".apkg") && (
+              <div className="rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3 text-sm text-blue-800 dark:text-blue-200">
+                Anki deck will be imported with its original hierarchy
+              </div>
+            )}
+
             {extractionError && (
               <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
                 {extractionError}
@@ -388,6 +446,17 @@ export function ImportDialog({
             <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
             <p className="mt-4 text-sm text-muted-foreground">
               Extracting text... {Math.round(extractionProgress)}%
+            </p>
+          </div>
+        )}
+
+        {step === "importing-anki" && (
+          <div className="py-8 text-center">
+            <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+            <p className="mt-4 text-sm text-muted-foreground">
+              {ankiImportResult
+                ? `Successfully imported ${ankiImportResult.imported} cards from ${ankiImportResult.decks} decks`
+                : "Importing Anki deck..."}
             </p>
           </div>
         )}
@@ -425,7 +494,7 @@ export function ImportDialog({
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  const all = new Set(generatedCards.map((_, i) => i));
+                  const all = new Set(generatedCards.map((_card, i) => i));
                   setSelectedCardIndices(all);
                 }}
               >
@@ -456,10 +525,10 @@ export function ImportDialog({
               </Button>
               <Button
                 onClick={handleExtract}
-                disabled={!file || (!initialDeckId && !selectedDeckId)}
+                disabled={!file || (!initialDeckId && !selectedDeckId && !file?.name.endsWith(".apkg"))}
               >
                 <Upload className="mr-2 h-4 w-4" />
-                Extract Text
+                {file?.name.endsWith(".apkg") ? "Import Anki Deck" : "Extract Text"}
               </Button>
             </>
           )}

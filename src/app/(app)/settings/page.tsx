@@ -128,7 +128,7 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-3">
-                <Label>Mode d'apprentissage</Label>
+                <Label>Mode d&apos;apprentissage</Label>
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -262,8 +262,8 @@ export default function SettingsPage() {
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                   <option value="mixed">Mélangé</option>
-                  <option value="oldFirst">Anciennes d'abord</option>
-                  <option value="newFirst">Nouvelles d'abord</option>
+                  <option value="oldFirst">Anciennes d&apos;abord</option>
+                  <option value="newFirst">Nouvelles d&apos;abord</option>
                 </select>
               </div>
             </CardContent>

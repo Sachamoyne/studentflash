@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { BookOpen } from "lucide-react";
+import { APP_NAME } from "@/lib/brand";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -69,8 +70,8 @@ export default function LoginPage() {
           </CardTitle>
           <CardDescription>
             {mode === "signin"
-              ? "Sign in to continue to ANKIbis"
-              : "Sign up to start using ANKIbis"}
+              ? `Sign in to continue to ${APP_NAME}`
+              : `Sign up to start using ${APP_NAME}`}
           </CardDescription>
         </CardHeader>
         <CardContent>

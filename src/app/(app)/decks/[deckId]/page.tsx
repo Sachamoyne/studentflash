@@ -30,11 +30,27 @@ import {
   suspendCard,
   unsuspendCard,
   getDeckAndAllChildren,
+  formatInterval,
 } from "@/store/decks";
 import { ImportDialog } from "@/components/ImportDialog";
 import { MoveCardsDialog } from "@/components/MoveCardsDialog";
 import type { Card as CardType, Deck } from "@/lib/db";
 import { Textarea } from "@/components/ui/textarea";
+
+// Helper to get next review text
+function getNextReviewText(card: CardType): string {
+  const now = Date.now();
+  const dueTime = new Date(card.due_at).getTime();
+
+  if (dueTime <= now) {
+    return "Due now";
+  }
+
+  const diffMs = dueTime - now;
+  const diffMinutes = diffMs / (1000 * 60);
+
+  return `In ${formatInterval(diffMinutes)}`;
+}
 
 export default function DeckDetailPage() {
   const params = useParams();
@@ -324,7 +340,7 @@ export default function DeckDetailPage() {
     (c) => c.state === "learning" && !c.suspended
   );
   const reviewCards = cards.filter(
-    (c) => c.state === "review" && !c.suspended && c.dueAt <= Date.now()
+    (c) => c.state === "review" && !c.suspended && new Date(c.due_at).getTime() <= Date.now()
   );
   const suspendedCards = cards.filter((c) => c.suspended);
   const otherCards = cards.filter(
@@ -506,7 +522,10 @@ export default function DeckDetailPage() {
                                     onChange={() => toggleCardSelection(card.id)}
                                     className="mt-1 h-4 w-4 rounded border-gray-300"
                                   />
-                                  <CardTitle className="text-base">Card</CardTitle>
+                                  <div>
+                                    <CardTitle className="text-base">Card</CardTitle>
+                                    <p className="text-xs text-muted-foreground mt-1">{getNextReviewText(card)}</p>
+                                  </div>
                                 </div>
                                 <div className="flex gap-1">
                                   <Button
@@ -574,7 +593,10 @@ export default function DeckDetailPage() {
                                     onChange={() => toggleCardSelection(card.id)}
                                     className="mt-1 h-4 w-4 rounded border-gray-300"
                                   />
-                                  <CardTitle className="text-base">Card</CardTitle>
+                                  <div>
+                                    <CardTitle className="text-base">Card</CardTitle>
+                                    <p className="text-xs text-muted-foreground mt-1">{getNextReviewText(card)}</p>
+                                  </div>
                                 </div>
                                 <div className="flex gap-1">
                                   <Button
@@ -642,7 +664,10 @@ export default function DeckDetailPage() {
                                     onChange={() => toggleCardSelection(card.id)}
                                     className="mt-1 h-4 w-4 rounded border-gray-300"
                                   />
-                                  <CardTitle className="text-base">Card</CardTitle>
+                                  <div>
+                                    <CardTitle className="text-base">Card</CardTitle>
+                                    <p className="text-xs text-muted-foreground mt-1">{getNextReviewText(card)}</p>
+                                  </div>
                                 </div>
                                 <div className="flex gap-1">
                                   <Button
@@ -710,7 +735,10 @@ export default function DeckDetailPage() {
                                     onChange={() => toggleCardSelection(card.id)}
                                     className="mt-1 h-4 w-4 rounded border-gray-300"
                                   />
-                                  <CardTitle className="text-base">Card</CardTitle>
+                                  <div>
+                                    <CardTitle className="text-base">Card (Suspended)</CardTitle>
+                                    <p className="text-xs text-muted-foreground mt-1">{getNextReviewText(card)}</p>
+                                  </div>
                                 </div>
                                 <div className="flex gap-1">
                                   <Button
@@ -778,7 +806,10 @@ export default function DeckDetailPage() {
                                     onChange={() => toggleCardSelection(card.id)}
                                     className="mt-1 h-4 w-4 rounded border-gray-300"
                                   />
-                                  <CardTitle className="text-base">Card</CardTitle>
+                                  <div>
+                                    <CardTitle className="text-base">Card</CardTitle>
+                                    <p className="text-xs text-muted-foreground mt-1">{getNextReviewText(card)}</p>
+                                  </div>
                                 </div>
                                 <div className="flex gap-1">
                                   <Button

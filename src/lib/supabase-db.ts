@@ -29,7 +29,7 @@ export async function listDecks(): Promise<Deck[]> {
 
   const { data, error } = await supabase
     .from("decks")
-    .select("*")
+    .select("id, user_id, name, parent_deck_id, created_at, updated_at")
     .eq("user_id", userId)
     .order("updated_at", { ascending: false });
 
@@ -44,13 +44,18 @@ export async function createDeck(
   const supabase = createClient();
   const userId = await getCurrentUserId();
 
+  const insertData: any = {
+    user_id: userId,
+    name,
+  };
+
+  if (parentDeckId) {
+    insertData.parent_deck_id = parentDeckId;
+  }
+
   const { data, error } = await supabase
     .from("decks")
-    .insert({
-      user_id: userId,
-      name,
-      parent_deck_id: parentDeckId || null,
-    })
+    .insert(insertData)
     .select()
     .single();
 
@@ -98,49 +103,26 @@ export async function deleteDeck(id: string): Promise<void> {
 }
 
 export async function getDeckAndAllChildren(deckId: string): Promise<string[]> {
-  const supabase = createClient();
-  const userId = await getCurrentUserId();
-  const result: string[] = [deckId];
-
-  async function collectChildren(parentId: string) {
-    const { data, error } = await supabase
-      .from("decks")
-      .select("id")
-      .eq("parent_deck_id", parentId)
-      .eq("user_id", userId);
-
-    if (error) throw error;
-
-    for (const child of data || []) {
-      result.push(child.id);
-      await collectChildren(child.id);
-    }
-  }
-
-  await collectChildren(deckId);
-  return result;
+  // Sub-decks feature disabled until parent_deck_id column is added to Supabase
+  // For now, just return the deck itself
+  return [deckId];
 }
 
 export async function getDeckPath(deckId: string): Promise<string> {
   const supabase = createClient();
   const userId = await getCurrentUserId();
-  const path: string[] = [];
-  let currentId: string | null = deckId;
 
-  while (currentId) {
-    const { data, error } = await supabase
-      .from("decks")
-      .select("name, parent_deck_id")
-      .eq("id", currentId)
-      .eq("user_id", userId)
-      .single();
+  // Sub-decks feature disabled until parent_deck_id column is added to Supabase
+  // Just return the deck name for now
+  const { data, error } = await supabase
+    .from("decks")
+    .select("name")
+    .eq("id", deckId)
+    .eq("user_id", userId)
+    .single();
 
-    if (error || !data) break;
-    path.unshift(data.name);
-    currentId = data.parent_deck_id;
-  }
-
-  return path.join(" > ");
+  if (error || !data) return "";
+  return data.name;
 }
 
 export async function listDecksWithPaths(): Promise<Array<{ deck: Deck; path: string }>> {
@@ -340,6 +322,14 @@ export async function moveCardsToDeck(
 }
 
 // SRS Functions
+/**
+ * Get due cards for study, prioritized according to Anki rules:
+ * 1. Learning/Relearning cards (by due time)
+ * 2. Review cards (by due time)
+ * 3. New cards (up to new_cards_per_day limit)
+ *
+ * This ensures Anki behavior where learning cards appear first.
+ */
 export async function getDueCards(
   deckId: string,
   limit: number = 50
@@ -351,18 +341,79 @@ export async function getDueCards(
   // Get all descendant deck IDs
   const deckIds = await getDeckAndAllChildren(deckId);
 
-  const { data, error } = await supabase
+  // Get settings to check new cards per day limit
+  const settings = await getSettings();
+
+  // Count how many new cards were studied today
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const { count: newCardsToday } = await supabase
+    .from("reviews")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .in("deck_id", deckIds)
+    .eq("previous_state", "new")
+    .gte("reviewed_at", todayStart.toISOString());
+
+  const newCardsAllowed = Math.max(0, (settings.new_cards_per_day || 20) - (newCardsToday || 0));
+
+  // 1. Get learning/relearning cards (priority 1)
+  const { data: learningCards, error: learningError } = await supabase
     .from("cards")
     .select("*")
     .in("deck_id", deckIds)
     .eq("user_id", userId)
     .eq("suspended", false)
+    .in("state", ["learning", "relearning"])
     .lte("due_at", now)
     .order("due_at", { ascending: true })
     .limit(limit);
 
-  if (error) throw error;
-  return data || [];
+  if (learningError) throw learningError;
+  const learning = learningCards || [];
+
+  // 2. Get review cards (priority 2)
+  const remainingLimit = Math.max(0, limit - learning.length);
+  const { data: reviewCards, error: reviewError } = await supabase
+    .from("cards")
+    .select("*")
+    .in("deck_id", deckIds)
+    .eq("user_id", userId)
+    .eq("suspended", false)
+    .eq("state", "review")
+    .lte("due_at", now)
+    .order("due_at", { ascending: true })
+    .limit(remainingLimit);
+
+  if (reviewError) throw reviewError;
+  const reviews = reviewCards || [];
+
+  // 3. Get new cards (priority 3, respecting quota)
+  const newCardsLimit = Math.min(
+    Math.max(0, limit - learning.length - reviews.length),
+    newCardsAllowed
+  );
+
+  let newCards: Card[] = [];
+  if (newCardsLimit > 0) {
+    const { data: newCardsData, error: newError } = await supabase
+      .from("cards")
+      .select("*")
+      .in("deck_id", deckIds)
+      .eq("user_id", userId)
+      .eq("suspended", false)
+      .eq("state", "new")
+      .lte("due_at", now)
+      .order("created_at", { ascending: true }) // Anki behavior: oldest first
+      .limit(newCardsLimit);
+
+    if (newError) throw newError;
+    newCards = newCardsData || [];
+  }
+
+  // Combine in priority order: learning → review → new
+  return [...learning, ...reviews, ...newCards];
 }
 
 export async function getDueCount(deckId: string): Promise<number> {
@@ -503,11 +554,14 @@ export async function reviewCard(
   });
 
   // Update card
+  // Convert ease to fixed decimal (2 decimal places) to match DECIMAL(3,2) in DB
+  const easeRounded = Number(result.ease.toFixed(2));
+
   const updateData = {
     state: result.state,
     due_at: result.due_at.toISOString(),
     interval_days: result.interval_days,
-    ease: result.ease,
+    ease: easeRounded,
     learning_step_index: result.learning_step_index,
     reps: result.reps,
     lapses: result.lapses,
@@ -516,6 +570,13 @@ export async function reviewCard(
   };
 
   console.log("💾 Updating card with:", updateData);
+  console.log("💾 Update data types:", {
+    state: typeof updateData.state,
+    ease: typeof updateData.ease,
+    ease_value: updateData.ease,
+    interval_days: typeof updateData.interval_days,
+    learning_step_index: typeof updateData.learning_step_index,
+  });
 
   const { data: updatedCard, error: updateError } = await supabase
     .from("cards")
@@ -527,6 +588,10 @@ export async function reviewCard(
 
   if (updateError) {
     console.error("❌ Card update error:", updateError);
+    console.error("❌ Full error details:", JSON.stringify(updateError, null, 2));
+    console.error("❌ Error message:", updateError.message);
+    console.error("❌ Error code:", updateError.code);
+    console.error("❌ Error details:", updateError.details);
     throw updateError;
   }
 

@@ -32,13 +32,15 @@ export default function DecksPage() {
 
   const loadDecks = async () => {
     try {
+      console.log('📂 loadDecks START');
       const loadedDecks = await listDecks();
+      console.log('✅ Loaded', loadedDecks.length, 'decks:', loadedDecks);
       setDecks(loadedDecks);
 
       const counts: Record<string, number> = {};
       const due: Record<string, number> = {};
       const learning: Record<string, { new: number; learning: number; review: number }> = {};
-      
+
       // Load all counts in parallel to avoid N+1
       // Load counts for all decks (including sub-decks)
       const countPromises = loadedDecks.map(async (deck) => {
@@ -55,19 +57,20 @@ export default function DecksPage() {
           learningCount,
         };
       });
-      
+
       const countResults = await Promise.all(countPromises);
       for (const result of countResults) {
         counts[result.deckId] = result.cardCount;
         due[result.deckId] = result.dueCount;
         learning[result.deckId] = result.learningCount;
       }
-      
+
       setCardCounts(counts);
       setDueCounts(due);
       setLearningCounts(learning);
+      console.log('✅ loadDecks COMPLETE');
     } catch (error) {
-      console.error("Error loading decks:", error);
+      console.error("❌ Error loading decks:", error);
     } finally {
       setLoading(false);
     }
@@ -81,12 +84,19 @@ export default function DecksPage() {
     if (!deckName.trim()) return;
 
     try {
-      await createDeck(deckName.trim());
+      console.log('🔷 handleCreateDeck START with name:', deckName.trim());
+      const newDeck = await createDeck(deckName.trim());
+      console.log('✅ Deck created:', newDeck);
+
+      console.log('📂 Reloading decks...');
       await loadDecks();
+      console.log('✅ Decks reloaded');
+
       setDeckName("");
       setDialogOpen(false);
     } catch (error) {
-      console.error("Error creating deck:", error);
+      console.error("❌ Error creating deck:", error);
+      alert("Error creating deck: " + (error as Error).message);
     }
   };
 
@@ -95,7 +105,7 @@ export default function DecksPage() {
   };
 
   // Get root decks (decks without parent)
-  const rootDecks = decks.filter((d) => !d.parentDeckId);
+  const rootDecks = decks.filter((d) => !d.parent_deck_id);
 
   return (
     <>

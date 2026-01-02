@@ -235,10 +235,16 @@ function scheduleNew(
   }
 
   // Again: go to first step
+  // For intraday learning, set due_at to now to keep in current session (Anki behavior)
   if (rating === "again") {
+    const stepMinutes = steps[0];
+    const dueAt = isInterday(stepMinutes)
+      ? calculateDueDate(stepMinutes, now)  // Interday: schedule for tomorrow
+      : now;  // Intraday: immediate (stay in current session)
+
     return {
       state: "learning",
-      due_at: calculateDueDate(steps[0], now),
+      due_at: dueAt,
       interval_days: 0,
       ease: settings.starting_ease,
       learning_step_index: 0,
@@ -311,10 +317,16 @@ function scheduleLearning(
   }
 
   // Again: back to first step
+  // For intraday learning cards, set due_at to now to keep in current session (Anki behavior)
   if (rating === "again") {
+    const stepMinutes = steps[0];
+    const dueAt = isInterday(stepMinutes)
+      ? calculateDueDate(stepMinutes, now)  // Interday: schedule for tomorrow
+      : now;  // Intraday: immediate (stay in current session)
+
     return {
       state: "learning",
-      due_at: calculateDueDate(steps[0], now),
+      due_at: dueAt,
       interval_days: 0,
       ease: card.ease,
       learning_step_index: 0,
@@ -539,10 +551,16 @@ function scheduleRelearning(
   }
 
   // Again: back to first relearn step
+  // For intraday relearning cards, set due_at to now to keep in current session (Anki behavior)
   if (rating === "again") {
+    const stepMinutes = steps[0];
+    const dueAt = isInterday(stepMinutes)
+      ? calculateDueDate(stepMinutes, now)  // Interday: schedule for tomorrow
+      : now;  // Intraday: immediate (stay in current session)
+
     return {
       state: "relearning",
-      due_at: calculateDueDate(steps[0], now),
+      due_at: dueAt,
       interval_days: card.interval_days,
       ease: card.ease,
       learning_step_index: 0,

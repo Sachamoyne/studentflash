@@ -51,10 +51,10 @@ export default function DashboardPage() {
       try {
         const decks = await listDecks();
 
-        // Calculate total due count: sum of all root decks (decks without parent)
-        const rootDecks = decks.filter((d) => !d.parentDeckId);
+        // Calculate total due count: sum of all decks
+        // Note: parent_deck_id column doesn't exist yet, so no filtering needed
         let totalDue = 0;
-        for (const deck of rootDecks) {
+        for (const deck of decks) {
           totalDue += await getDueCount(deck.id);
         }
 
@@ -126,7 +126,7 @@ export default function DashboardPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  À réviser aujourd'hui
+                  À réviser aujourd&apos;hui
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -140,7 +140,7 @@ export default function DashboardPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Étudiées aujourd'hui
+                  Étudiées aujourd&apos;hui
                 </CardTitle>
               </CardHeader>
               <CardContent>

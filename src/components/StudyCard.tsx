@@ -146,7 +146,13 @@ export function StudyCard({
 
           queuedIds.current.add(currentCard.id);
           setAgainCardsCount((prev) => prev + 1);
-          newIndex = Math.min(currentIndex, withoutCurrent.length - 1);
+
+          // Handle case when this was the last card - reinserted card becomes index 0
+          if (withoutCurrent.length === 0) {
+            newIndex = 0;
+          } else {
+            newIndex = Math.min(currentIndex, withoutCurrent.length - 1);
+          }
         } else {
           newQueue = withoutCurrent;
           queuedIds.current.delete(currentCard.id);

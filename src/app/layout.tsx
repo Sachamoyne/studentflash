@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "@/styles/globals.css";
+import { APP_NAME, APP_TAGLINE, APP_DESCRIPTION } from "@/lib/brand";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "ANKIbis - Apprentissage par répétition espacée",
-  description: "Clone Anki avec interface moderne",
+  title: `${APP_NAME} - ${APP_TAGLINE}`,
+  description: APP_DESCRIPTION,
 };
 
 export default function RootLayout({

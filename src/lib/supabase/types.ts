@@ -48,6 +48,7 @@ export interface Database {
           ease: number
           reps: number
           lapses: number
+          learning_step_index: number
           suspended: boolean
           last_reviewed_at: string | null
           created_at: string
@@ -65,6 +66,7 @@ export interface Database {
           ease?: number
           reps?: number
           lapses?: number
+          learning_step_index?: number
           suspended?: boolean
           last_reviewed_at?: string | null
           created_at?: string
@@ -82,6 +84,7 @@ export interface Database {
           ease?: number
           reps?: number
           lapses?: number
+          learning_step_index?: number
           suspended?: boolean
           last_reviewed_at?: string | null
           created_at?: string
@@ -186,6 +189,17 @@ export interface Database {
           learning_mode: string
           again_delay_minutes: number
           review_order: string
+          learning_steps: string
+          relearning_steps: string
+          graduating_interval_days: number
+          easy_interval_days: number
+          starting_ease: number
+          easy_bonus: number
+          hard_interval: number
+          interval_modifier: number
+          new_interval_multiplier: number
+          minimum_interval_days: number
+          maximum_interval_days: number
           created_at: string
           updated_at: string
         }
@@ -196,6 +210,17 @@ export interface Database {
           learning_mode?: string
           again_delay_minutes?: number
           review_order?: string
+          learning_steps?: string
+          relearning_steps?: string
+          graduating_interval_days?: number
+          easy_interval_days?: number
+          starting_ease?: number
+          easy_bonus?: number
+          hard_interval?: number
+          interval_modifier?: number
+          new_interval_multiplier?: number
+          minimum_interval_days?: number
+          maximum_interval_days?: number
           created_at?: string
           updated_at?: string
         }
@@ -206,6 +231,17 @@ export interface Database {
           learning_mode?: string
           again_delay_minutes?: number
           review_order?: string
+          learning_steps?: string
+          relearning_steps?: string
+          graduating_interval_days?: number
+          easy_interval_days?: number
+          starting_ease?: number
+          easy_bonus?: number
+          hard_interval?: number
+          interval_modifier?: number
+          new_interval_multiplier?: number
+          minimum_interval_days?: number
+          maximum_interval_days?: number
           created_at?: string
           updated_at?: string
         }
